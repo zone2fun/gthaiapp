@@ -1,0 +1,82 @@
+{
+  "expo": {
+    "name": "GTHAILOVER",
+    "slug": "gthai-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/mini_logo.jpg",
+    "scheme": "gthai",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/images/splash.png",
+      "resizeMode": "cover",
+      "backgroundColor": "#000000"
+    },
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.gthai.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.gthai.mobile",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "backgroundColor": "#000000",
+        "foregroundImage": "./assets/icons/logo_android.png"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "usesCleartextTraffic": true,
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ],
+      "splash": {
+        "image": "./assets/icons/splash_android.png",
+        "resizeMode": "cover",
+        "backgroundColor": "#000000",
+        "dark": {
+          "backgroundColor": "#000000",
+          "image": "./assets/icons/splash_android.png",
+          "resizeMode": "cover"
+        },
+        "imageWidth": 200
+      }
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/icons/splash_android.png",
+          "resizeMode": "cover",
+          "backgroundColor": "#000000",
+          "dark": {
+            "backgroundColor": "#000000",
+            "image": "./assets/icons/splash_android.png",
+            "resizeMode": "cover"
+          },
+          "imageWidth": 200
+        }
+      ],
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "f5d3a8fa-64d6-4b4b-b867-8f6b85df5e22"
+      }
+    }
+  }
+}
