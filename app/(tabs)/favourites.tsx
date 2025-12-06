@@ -7,10 +7,12 @@ import ProfileCard from '@/components/ProfileCard';
 import { AdBanner } from '@/components/AdBanner';
 import { useProtectedRoute } from '@/hooks/useProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSocket } from '@/contexts/SocketContext';
 
 export default function FavouritesScreen() {
     const { isAuthenticated } = useProtectedRoute();
     const { user, token, blockedUsers } = useAuth();
+    const { socket } = useSocket();
     const [favourites, setFavourites] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -44,6 +46,17 @@ export default function FavouritesScreen() {
     useEffect(() => {
         fetchFavourites();
     }, [blockedUsers]);
+
+    // Listen for socket events to refresh favourites (e.g. if someone blocks us)
+    useEffect(() => {
+        if (!socket) return;
+        socket.on('blocked', fetchFavourites);
+        socket.on('unblocked', fetchFavourites);
+        return () => {
+            socket.off('blocked', fetchFavourites);
+            socket.off('unblocked', fetchFavourites);
+        };
+    }, [socket]);
 
     const onRefresh = async () => {
         setRefreshing(true);

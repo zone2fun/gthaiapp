@@ -23,6 +23,7 @@ export default function ChatDetailScreen() {
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
     const [uploadingImage, setUploadingImage] = useState(false);
+    const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const [otherUser, setOtherUser] = useState<any>(null);
     const [respondedRequests, setRespondedRequests] = useState<Set<string>>(new Set());
     const [processingRequests, setProcessingRequests] = useState<Set<string>>(new Set());
@@ -108,20 +109,42 @@ export default function ChatDetailScreen() {
     };
 
     const handleSend = async () => {
-        if (!inputText.trim() || !token || !socket) return;
+        if ((!inputText.trim() && !selectedImage) || !token || !socket) return;
 
         const textToSend = inputText.trim();
+        const imageToSend = selectedImage;
+
+        // Reset inputs immediately
         setInputText('');
+        setSelectedImage(null);
         setSending(true);
 
         try {
-            // Send message to backend (backend will emit socket event)
-            const sentMessage = await sendMessage(id as string, textToSend, token);
+            let imageUrl = undefined;
+
+            // Upload image if selected
+            if (imageToSend) {
+                setUploadingImage(true);
+                try {
+                    // Reuse existing cloudinary upload
+                    imageUrl = await uploadImageToCloudinary(imageToSend, token);
+                } catch (error) {
+                    console.error('Error uploading image:', error);
+                    Alert.alert('Error', 'Failed to upload image');
+                    setUploadingImage(false);
+                    setSending(false);
+                    setSelectedImage(imageToSend); // Restore image on failure
+                    return;
+                }
+                setUploadingImage(false);
+            }
+
+            // Send message to backend
+            const sentMessage = await sendMessage(id as string, textToSend, token, imageUrl);
 
             // Add message to local state immediately for better UX
             if (sentMessage) {
                 setMessages(prev => {
-                    // Check if message already exists to prevent duplicates
                     const exists = prev.some(msg => msg._id === sentMessage._id);
                     if (exists) return prev;
                     return [...prev, sentMessage];
@@ -129,8 +152,13 @@ export default function ChatDetailScreen() {
             }
         } catch (error) {
             console.error('Error sending message:', error);
+            Alert.alert('Error', 'Failed to send message');
+            // Restore text if failed (optional, but good UX)
+            if (textToSend) setInputText(textToSend);
+            if (imageToSend && !selectedImage) setSelectedImage(imageToSend);
         } finally {
             setSending(false);
+            setUploadingImage(false);
         }
     };
 
@@ -150,32 +178,17 @@ export default function ChatDetailScreen() {
             });
 
             if (!result.canceled && result.assets[0]) {
-                setUploadingImage(true);
-
-                try {
-                    const imageUrl = await uploadImageToCloudinary(result.assets[0].uri, token!);
-                    const sentMessage = await sendMessage(id as string, '', token!, imageUrl);
-
-                    // Add message to local state immediately for better UX
-                    if (sentMessage) {
-                        setMessages(prev => {
-                            // Check if message already exists to prevent duplicates
-                            const exists = prev.some(msg => msg._id === sentMessage._id);
-                            if (exists) return prev;
-                            return [...prev, sentMessage];
-                        });
-                    }
-                } catch (error) {
-                    console.error('Error uploading image:', error);
-                    Alert.alert('Error', 'Failed to send image');
-                } finally {
-                    setUploadingImage(false);
-                }
+                // Set selected image for preview instead of sending immediately
+                setSelectedImage(result.assets[0].uri);
             }
         } catch (error) {
             console.error('Error picking image:', error);
             Alert.alert('Error', 'Failed to pick image');
         }
+    };
+
+    const removeSelectedImage = () => {
+        setSelectedImage(null);
     };
 
     const handleDeleteMessage = async (messageId: string) => {
@@ -361,11 +374,21 @@ export default function ChatDetailScreen() {
                     isMe ? styles.myMessageBubble : styles.theirMessageBubble
                 ]}>
                     {item.image && (
-                        <Image
-                            source={{ uri: item.image }}
-                            style={styles.messageImage}
-                            contentFit="cover"
-                        />
+                        <View>
+                            <Image
+                                source={{ uri: item.image }}
+                                style={styles.messageImage}
+                                contentFit="cover"
+                            />
+                            {isMe && (
+                                <TouchableOpacity
+                                    style={styles.deleteImageButton}
+                                    onPress={() => handleDeleteMessage(item._id)}
+                                >
+                                    <MaterialIcons name="delete-outline" size={20} color="#fff" />
+                                </TouchableOpacity>
+                            )}
+                        </View>
                     )}
                     {item.text && (
                         <Text style={[
@@ -443,34 +466,44 @@ export default function ChatDetailScreen() {
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                 keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
             >
-                <View style={styles.inputContainer}>
-                    <TouchableOpacity
-                        style={styles.attachButton}
-                        onPress={handleImagePick}
-                        disabled={uploadingImage || sending}
-                    >
-                        {uploadingImage ? (
-                            <ActivityIndicator size="small" color={Colors.dark.tint} />
-                        ) : (
-                            <MaterialIcons name="add-photo-alternate" size={24} color="#888" />
-                        )}
-                    </TouchableOpacity>
-                    <TextInput
-                        style={styles.input}
-                        placeholder="Type a message..."
-                        placeholderTextColor="#666"
-                        value={inputText}
-                        onChangeText={setInputText}
-                        multiline
-                        editable={!uploadingImage}
-                    />
-                    <TouchableOpacity
-                        style={[styles.sendButton, (!inputText.trim() || uploadingImage) && styles.sendButtonDisabled]}
-                        onPress={handleSend}
-                        disabled={!inputText.trim() || sending || uploadingImage}
-                    >
-                        <MaterialIcons name="send" size={24} color="#fff" />
-                    </TouchableOpacity>
+                <View style={styles.inputWrapper}>
+                    {selectedImage && (
+                        <View style={styles.previewContainer}>
+                            <Image source={{ uri: selectedImage }} style={styles.previewImage} />
+                            <TouchableOpacity style={styles.removePreviewButton} onPress={removeSelectedImage}>
+                                <MaterialIcons name="close" size={20} color="#fff" />
+                            </TouchableOpacity>
+                        </View>
+                    )}
+                    <View style={styles.inputContainer}>
+                        <TouchableOpacity
+                            style={styles.attachButton}
+                            onPress={handleImagePick}
+                            disabled={uploadingImage || sending}
+                        >
+                            {uploadingImage ? (
+                                <ActivityIndicator size="small" color={Colors.dark.tint} />
+                            ) : (
+                                <MaterialIcons name="add-photo-alternate" size={24} color="#888" />
+                            )}
+                        </TouchableOpacity>
+                        <TextInput
+                            style={styles.input}
+                            placeholder="Type a message..."
+                            placeholderTextColor="#666"
+                            value={inputText}
+                            onChangeText={setInputText}
+                            multiline
+                            editable={!uploadingImage && !sending}
+                        />
+                        <TouchableOpacity
+                            style={[styles.sendButton, ((!inputText.trim() && !selectedImage) || uploadingImage) && styles.sendButtonDisabled]}
+                            onPress={handleSend}
+                            disabled={(!inputText.trim() && !selectedImage) || sending || uploadingImage}
+                        >
+                            <MaterialIcons name="send" size={24} color="#fff" />
+                        </TouchableOpacity>
+                    </View>
                 </View>
 
                 <View style={styles.bannerContainer}>
@@ -555,7 +588,7 @@ export default function ChatDetailScreen() {
                     </View>
                 </View>
             </Modal>
-        </SafeAreaView>
+        </SafeAreaView >
     );
 }
 
@@ -671,14 +704,7 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         marginBottom: 8,
     },
-    inputContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: 12,
-        borderTopWidth: 1,
-        borderTopColor: '#333',
-        backgroundColor: Colors.dark.background,
-    },
+
     attachButton: {
         padding: 8,
     },
@@ -924,5 +950,48 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontSize: 14,
         fontWeight: '600',
+    },
+    inputWrapper: {
+        backgroundColor: '#1E1E1E',
+        borderTopWidth: 1,
+        borderTopColor: '#333',
+    },
+    inputContainer: {
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+        padding: 10,
+    },
+    previewContainer: {
+        padding: 10,
+        paddingBottom: 0,
+        flexDirection: 'row',
+    },
+    previewImage: {
+        width: 100,
+        height: 100,
+        borderRadius: 10,
+        backgroundColor: '#333',
+    },
+    removePreviewButton: {
+        position: 'absolute',
+        top: 5,
+        left: 85, // width - 15
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        borderRadius: 15,
+        width: 25,
+        height: 25,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    deleteImageButton: {
+        position: 'absolute',
+        bottom: 5,
+        left: 5,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        borderRadius: 15,
+        width: 30,
+        height: 30,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
 });

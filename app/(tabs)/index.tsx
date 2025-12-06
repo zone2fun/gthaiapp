@@ -143,8 +143,14 @@ export default function HomeScreen() {
 
     socket.on('new notification', handleNewNotification);
 
+    // Listen for block events to refresh user lists
+    socket.on('blocked', fetchData);
+    socket.on('unblocked', fetchData);
+
     return () => {
       socket.off('new notification', handleNewNotification);
+      socket.off('blocked', fetchData);
+      socket.off('unblocked', fetchData);
     };
   }, [socket, isAuthenticated]);
 

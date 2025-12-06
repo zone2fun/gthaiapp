@@ -585,10 +585,11 @@ export const getBlockedUsers = async (token: string) => {
     }
 };
 
+
 export const blockUser = async (userId: string, token: string) => {
     try {
-        const res = await fetch(`${API_URL}/users/block/${userId}`, {
-            method: 'POST',
+        const res = await fetch(`${API_URL}/users/${userId}/block`, {
+            method: 'PUT',
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json',
@@ -596,7 +597,9 @@ export const blockUser = async (userId: string, token: string) => {
         });
 
         if (!res.ok) {
-            throw new Error('Failed to block user');
+            const errorData = await res.json().catch(() => ({ message: 'Unknown error' }));
+            console.error('Block user failed:', res.status, errorData);
+            throw new Error(errorData.message || 'Failed to block user');
         }
 
         return await res.json();
@@ -608,8 +611,8 @@ export const blockUser = async (userId: string, token: string) => {
 
 export const unblockUser = async (userId: string, token: string) => {
     try {
-        const res = await fetch(`${API_URL}/users/unblock/${userId}`, {
-            method: 'POST',
+        const res = await fetch(`${API_URL}/users/${userId}/unblock`, {
+            method: 'PUT',
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json',
@@ -617,7 +620,9 @@ export const unblockUser = async (userId: string, token: string) => {
         });
 
         if (!res.ok) {
-            throw new Error('Failed to unblock user');
+            const errorData = await res.json().catch(() => ({ message: 'Unknown error' }));
+            console.error('Unblock user failed:', res.status, errorData);
+            throw new Error(errorData.message || 'Failed to unblock user');
         }
 
         return await res.json();
@@ -740,7 +745,26 @@ export const updateUserProfile = async (formData: FormData, token: string) => {
 };
 
 // Keep updateUser for backward compatibility
-export const updateUser = updateLocation;
+export const updateUser = async (userId: string, userData: any, token: string) => {
+    // Convert JSON data to FormData for updateUserProfile
+    const formData = new FormData();
+
+    Object.keys(userData).forEach(key => {
+        const value = userData[key];
+
+        if (Array.isArray(value)) {
+            // Check if it's an array of objects or strings to verify structure if needed
+            // For now, assume strings or simple types as per previous usage
+            value.forEach((item: any) => {
+                formData.append(key, item);
+            });
+        } else if (value !== null && value !== undefined) {
+            formData.append(key, String(value));
+        }
+    });
+
+    return updateUserProfile(formData, token);
+};
 
 
 // Post Like/Unlike API

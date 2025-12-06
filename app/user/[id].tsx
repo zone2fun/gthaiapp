@@ -5,8 +5,9 @@ import { Image } from 'expo-image';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '@/constants/theme';
-import { getUser, toggleFavorite, blockUser, requestAlbumAccess, checkAlbumAccess } from '@/services/api';
+import { getUser, toggleFavorite, blockUser, unblockUser, requestAlbumAccess, checkAlbumAccess } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSocket } from '@/contexts/SocketContext';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 
 const { width } = Dimensions.get('window');
@@ -14,12 +15,14 @@ const { width } = Dimensions.get('window');
 export default function UserProfileScreen() {
     const { id } = useLocalSearchParams();
     const router = useRouter();
-    const { user: currentUser, token, addBlockedUser, updateUser } = useAuth();
+    const { user: currentUser, token, addBlockedUser, removeBlockedUser, updateUser, blockedUsers } = useAuth();
+    const { socket } = useSocket();
     const { getOnlineStatus } = useOnlineStatus();
 
     const [user, setUser] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [isFavorite, setIsFavorite] = useState(false);
+    const [isBlocked, setIsBlocked] = useState(false);
     const [lightboxVisible, setLightboxVisible] = useState(false);
     const [currentImageIndex, setCurrentImageIndex] = useState(0);
     const [lightboxImages, setLightboxImages] = useState<string[]>([]);
@@ -44,6 +47,11 @@ export default function UserProfileScreen() {
                     setIsFavorite(true);
                 }
 
+                // Check if blocked
+                if (blockedUsers.includes(id as string)) {
+                    setIsBlocked(true);
+                }
+
                 // Check album access status
                 const accessStatus = await checkAlbumAccess(id as string, token);
                 setAlbumAccessStatus(accessStatus);
@@ -57,11 +65,26 @@ export default function UserProfileScreen() {
         fetchData();
     }, [id, token, currentUser]);
 
-    // Listen for album access response (for rejected requests)
+
+
+    // Socket listener for blocked event
     useEffect(() => {
-        // Note: Socket integration would go here if needed
-        // For now, the status will be updated when user navigates back to this page
-    }, []);
+        if (!socket) return;
+
+        const handleBlocked = (data: any) => {
+            if (data.byUser === id) {
+                Alert.alert('Access Denied', 'You have been blocked by this user.', [
+                    { text: 'OK', onPress: () => router.back() }
+                ]);
+            }
+        };
+
+        socket.on('blocked', handleBlocked);
+
+        return () => {
+            socket.off('blocked', handleBlocked);
+        };
+    }, [socket, id]);
 
     const openLightbox = (images: string[], index: number) => {
         setLightboxImages(images);
@@ -132,10 +155,34 @@ export default function UserProfileScreen() {
                         try {
                             await blockUser(user._id, token);
                             addBlockedUser(user._id);
+                            setIsBlocked(true);
                             Alert.alert('Success', 'User blocked');
-                            router.back();
                         } catch (error) {
                             Alert.alert('Error', 'Failed to block user');
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    const handleUnblock = () => {
+        Alert.alert(
+            'Unblock User',
+            'Are you sure you want to unblock this user?',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Unblock',
+                    onPress: async () => {
+                        if (!token || !user) return;
+                        try {
+                            await unblockUser(user._id, token);
+                            removeBlockedUser(user._id);
+                            setIsBlocked(false);
+                            Alert.alert('Success', 'User unblocked');
+                        } catch (error) {
+                            Alert.alert('Error', 'Failed to unblock user');
                         }
                     }
                 }
@@ -335,10 +382,17 @@ export default function UserProfileScreen() {
                                     <Text style={styles.actionBtnText}>{isFavorite ? 'Favorited' : 'Favorite'}</Text>
                                 </TouchableOpacity>
 
-                                <TouchableOpacity style={[styles.actionBtn, styles.blockBtn]} onPress={handleBlock}>
-                                    <MaterialIcons name="block" size={20} color="#fff" />
-                                    <Text style={styles.actionBtnText}>Block</Text>
-                                </TouchableOpacity>
+                                {isBlocked ? (
+                                    <TouchableOpacity style={[styles.actionBtn, styles.unblockBtn]} onPress={handleUnblock}>
+                                        <MaterialIcons name="block" size={20} color="#fff" />
+                                        <Text style={styles.actionBtnText}>Unblock</Text>
+                                    </TouchableOpacity>
+                                ) : (
+                                    <TouchableOpacity style={[styles.actionBtn, styles.blockBtn]} onPress={handleBlock}>
+                                        <MaterialIcons name="block" size={20} color="#fff" />
+                                        <Text style={styles.actionBtnText}>Block</Text>
+                                    </TouchableOpacity>
+                                )}
 
                                 <TouchableOpacity style={[styles.actionBtn, styles.reportBtn]} onPress={() => router.push(`/report/user/${user._id}`)}>
                                     <MaterialIcons name="flag" size={20} color="#fff" />
@@ -662,6 +716,10 @@ const styles = StyleSheet.create({
     },
     blockBtn: {
         backgroundColor: '#E63946', // Red
+        flexBasis: '48%',
+    },
+    unblockBtn: {
+        backgroundColor: '#555', // Grey
         flexBasis: '48%',
     },
     reportBtn: {

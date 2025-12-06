@@ -134,6 +134,22 @@ export default function SpecialScreen() {
         };
     }, [socket]);
 
+    // Re-bind listeners when blockedUsers changes to ensure fresh closure context if needed,
+    // although fetching from backend relies on DB state mainly.
+    // However, to be cleaner, we could separate this. 
+    // For now, adding to the main socket effect is risky if dependencies aren't updated.
+    // Let's create a separate effect for block/unblock to be safe.
+
+    useEffect(() => {
+        if (!socket) return;
+        socket.on('blocked', fetchPosts);
+        socket.on('unblocked', fetchPosts);
+        return () => {
+            socket.off('blocked', fetchPosts);
+            socket.off('unblocked', fetchPosts);
+        };
+    }, [socket, user, token, blockedUsers]); // Re-bind if auth state changes
+
     const fetchPosts = async () => {
         try {
             const data = await getPosts(token!);

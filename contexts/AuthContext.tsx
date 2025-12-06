@@ -11,6 +11,7 @@ interface AuthContextType {
     loading: boolean;
     blockedUsers: string[];
     addBlockedUser: (userId: string) => void;
+    removeBlockedUser: (userId: string) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -119,8 +120,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
     };
 
+    const removeBlockedUser = (userId: string) => {
+        setBlockedUsers(prev => {
+            const newBlocked = prev.filter(id => id !== userId);
+            // Also update the user object in storage/state to persist this change locally
+            if (user) {
+                const updatedUser = { ...user, blockedUsers: newBlocked };
+                updateUser(updatedUser).catch(console.error);
+            }
+            return newBlocked;
+        });
+    };
+
     return (
-        <AuthContext.Provider value={{ isAuthenticated, user, token, login, logout, updateUser, loading, blockedUsers, addBlockedUser }}>
+        <AuthContext.Provider value={{ isAuthenticated, user, token, login, logout, updateUser, loading, blockedUsers, addBlockedUser, removeBlockedUser }}>
             {children}
         </AuthContext.Provider>
     );

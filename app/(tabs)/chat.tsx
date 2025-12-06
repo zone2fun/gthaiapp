@@ -85,10 +85,16 @@ export default function ChatScreen() {
 
         socket.on('message received', handleMessageReceived);
 
+        // Listen for block events
+        socket.on('blocked', fetchConversations);
+        socket.on('unblocked', fetchConversations);
+
         return () => {
             socket.off('message received', handleMessageReceived);
+            socket.off('blocked', fetchConversations);
+            socket.off('unblocked', fetchConversations);
         };
-    }, [socket, user, token]);
+    }, [socket, user, token, blockedUsers]); // Added blockedUsers to dep array since fetchConversations uses it
 
     const onRefresh = async () => {
         setRefreshing(true);
