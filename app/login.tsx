@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { StyleSheet, View, Text, TextInput, TouchableOpacity, Alert, Image, ImageBackground, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, View, Text, TextInput, TouchableOpacity, Alert, Image, ImageBackground, ActivityIndicator, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, Link, Stack } from 'expo-router';
 import { MaterialIcons, FontAwesome } from '@expo/vector-icons';
@@ -7,6 +7,10 @@ import { Colors } from '@/constants/theme';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/contexts/AuthContext';
 import { login as apiLogin } from '@/services/api';
+import * as WebBrowser from 'expo-web-browser';
+import * as Google from 'expo-auth-session/providers/google';
+
+WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
     const router = useRouter();
@@ -15,9 +19,76 @@ export default function LoginScreen() {
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
 
+    // Modal State
+    const [modalVisible, setModalVisible] = useState(false);
+    const [modalTitle, setModalTitle] = useState('');
+    const [modalMessage, setModalMessage] = useState('');
+    const [modalType, setModalType] = useState<'success' | 'error'>('error');
+
+    // Google Auth Request
+    const [request, response, promptAsync] = Google.useAuthRequest({
+        clientId: '851927648086-bmmmbb21cpaqr9k20dm4dd3umr86mlgq.apps.googleusercontent.com',
+    });
+
+    useEffect(() => {
+        if (response?.type === 'success') {
+            const { authentication } = response;
+            if (authentication?.accessToken) {
+                handleGoogleSignInSuccess(authentication.accessToken);
+            }
+        } else if (response?.type === 'error') {
+            Alert.alert('Google Login Failed', 'An error occurred during sign in.');
+        }
+    }, [response]);
+
+    const handleGoogleSignInSuccess = async (accessToken: string) => {
+        setLoading(true);
+        try {
+            // Get location
+            let lat = null, lng = null;
+            try {
+                const Location = await import('expo-location');
+                const { status } = await Location.requestForegroundPermissionsAsync();
+                if (status === 'granted') {
+                    const location = await Location.getCurrentPositionAsync({});
+                    lat = location.coords.latitude;
+                    lng = location.coords.longitude;
+                }
+            } catch (e) { console.warn('Location error:', e); }
+
+            // Call backend directly
+            const API_URL = 'https://gthai-backend.onrender.com/api';
+            const backendRes = await fetch(`${API_URL}/auth/google`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: accessToken, lat, lng }),
+            });
+
+            if (!backendRes.ok) {
+                const errorData = await backendRes.json();
+                throw new Error(errorData.message || 'Google login failed');
+            }
+
+            const data = await backendRes.json();
+            await login(data.user || data, data.token);
+            router.replace('/(tabs)');
+        } catch (error: any) {
+            console.error('Google login failed:', error);
+            setModalTitle('Google Login Failed');
+            setModalMessage(error.message || 'An error occurred during Google sign in.');
+            setModalType('error');
+            setModalVisible(true);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleLogin = async () => {
         if (!email || !password) {
-            Alert.alert('Error', 'Please enter email and password');
+            setModalTitle('Error');
+            setModalMessage('Please enter email and password');
+            setModalType('error');
+            setModalVisible(true);
             return;
         }
 
@@ -25,97 +96,13 @@ export default function LoginScreen() {
         try {
             const { user, token } = await apiLogin(email, password);
             await login(user, token);
-            // Alert.alert('Success', `Welcome back, ${user.name}!`);
             router.replace('/(tabs)');
         } catch (error: any) {
             console.error('Login failed:', error);
-            Alert.alert('Login Failed', error.message || 'Invalid email or password');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleGoogleLogin = async () => {
-        try {
-            setLoading(true);
-
-            // Import Expo auth modules
-            const { makeRedirectUri } = await import('expo-auth-session');
-            const WebBrowser = await import('expo-web-browser');
-
-            WebBrowser.maybeCompleteAuthSession();
-
-            const redirectUri = makeRedirectUri();
-            console.log('Redirect URI:', redirectUri);
-
-            const discovery = {
-                authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
-                tokenEndpoint: 'https://oauth2.googleapis.com/token',
-            };
-
-            // Replace with your actual Client ID
-            const clientId = '851927648086-bmmmbb21cpaqr9k20dm4dd3umr86mlgq.apps.googleusercontent.com';
-
-            const authUrl = `${discovery.authorizationEndpoint}?` +
-                `client_id=${clientId}&` +
-                `redirect_uri=${encodeURIComponent(redirectUri)}&` +
-                `response_type=code&` +
-                `scope=${encodeURIComponent('openid profile email')}&` +
-                `access_type=offline&` +
-                `prompt=consent`;
-
-            const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
-
-            if (result.type === 'success' && result.url) {
-                const url = new URL(result.url);
-                const code = url.searchParams.get('code');
-
-                if (!code) throw new Error('No authorization code received');
-
-                // Exchange code for token
-                const tokenResponse = await fetch(discovery.tokenEndpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: `code=${code}&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&grant_type=authorization_code`,
-                });
-
-                const tokens = await tokenResponse.json();
-                if (!tokens.access_token) throw new Error('Failed to get access token');
-
-                // Get location
-                let lat = null, lng = null;
-                try {
-                    const Location = await import('expo-location');
-                    const { status } = await Location.requestForegroundPermissionsAsync();
-                    if (status === 'granted') {
-                        const location = await Location.getCurrentPositionAsync({});
-                        lat = location.coords.latitude;
-                        lng = location.coords.longitude;
-                    }
-                } catch (e) { console.warn('Location error:', e); }
-
-                // Call backend directly (inline to avoid modifying api.ts)
-                const API_URL = 'https://gthai-backend.onrender.com/api';
-                const backendRes = await fetch(`${API_URL}/auth/google`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ token: tokens.access_token, lat, lng }),
-                });
-
-                if (!backendRes.ok) {
-                    const errorData = await backendRes.json();
-                    throw new Error(errorData.message || 'Google login failed');
-                }
-
-                const data = await backendRes.json();
-                await login(data.user || data, data.token);
-                router.replace('/(tabs)');
-            } else if (result.type === 'cancel') {
-                console.log('User cancelled');
-            }
-        } catch (error: any) {
-            console.error('Google login failed:', error);
-            Alert.alert('Google Login Failed', error.message || 'Failed to sign in with Google');
+            setModalTitle('Login Failed');
+            setModalMessage(error.message || 'Invalid email or password');
+            setModalType('error');
+            setModalVisible(true);
         } finally {
             setLoading(false);
         }
@@ -147,7 +134,7 @@ export default function LoginScreen() {
                         secureTextEntry
                     />
 
-                    <TouchableOpacity style={styles.forgotPassword}>
+                    <TouchableOpacity style={styles.forgotPassword} onPress={() => router.push('/forgot-password')}>
                         <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
                     </TouchableOpacity>
 
@@ -176,7 +163,7 @@ export default function LoginScreen() {
                         <View style={styles.dividerLine} />
                     </View>
 
-                    <TouchableOpacity style={styles.googleButton} onPress={handleGoogleLogin}>
+                    <TouchableOpacity style={styles.googleButton} onPress={() => promptAsync()}>
                         <Image
                             source={require('@/assets/images/google_logo.jpg')}
                             style={styles.googleLogo}
@@ -201,6 +188,43 @@ export default function LoginScreen() {
                     </TouchableOpacity>
                 </View>
             </View>
+
+            {/* Custom Modal */}
+            <Modal
+                animationType="fade"
+                transparent={true}
+                visible={modalVisible}
+                onRequestClose={() => setModalVisible(false)}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={[styles.modalContent, modalType === 'error' ? styles.modalError : styles.modalSuccess]}>
+                        <View style={[styles.modalIcon, { backgroundColor: modalType === 'success' ? '#4CAF50' : '#ff4444' }]}>
+                            <MaterialIcons
+                                name={modalType === 'success' ? "check" : "error-outline"}
+                                size={40}
+                                color="#fff"
+                            />
+                        </View>
+
+                        <Text style={styles.modalTitle}>
+                            {modalTitle || (modalType === 'success' ? 'Success' : 'Error')}
+                        </Text>
+
+                        <Text style={styles.modalMessage}>
+                            {modalMessage}
+                        </Text>
+
+                        <TouchableOpacity
+                            style={[styles.modalButton, { backgroundColor: modalType === 'success' ? '#4CAF50' : '#ff4444' }]}
+                            onPress={() => setModalVisible(false)}
+                        >
+                            <Text style={styles.modalButtonText}>
+                                {modalType === 'success' ? 'OK' : 'Try Again'}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -330,5 +354,70 @@ const styles = StyleSheet.create({
         color: Colors.dark.tint,
         fontSize: 16,
         fontWeight: '600',
+    },
+
+    // Modal Styles
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+    },
+    modalContent: {
+        width: '85%',
+        backgroundColor: '#1e1e1e',
+        borderRadius: 20,
+        padding: 24,
+        alignItems: 'center',
+        elevation: 5,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3.84,
+        borderWidth: 1,
+        borderColor: '#333',
+    },
+    modalError: {
+        borderColor: '#ff4444',
+    },
+    modalSuccess: {
+        borderColor: '#4CAF50',
+    },
+    modalIcon: {
+        width: 70,
+        height: 70,
+        borderRadius: 35,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 20,
+        marginTop: -50,
+        borderWidth: 4,
+        borderColor: '#1e1e1e',
+    },
+    modalTitle: {
+        fontSize: 22,
+        fontWeight: 'bold',
+        color: '#fff',
+        marginBottom: 10,
+    },
+    modalMessage: {
+        fontSize: 16,
+        color: '#ccc',
+        textAlign: 'center',
+        marginBottom: 24,
+        lineHeight: 22,
+    },
+    modalButton: {
+        paddingVertical: 12,
+        paddingHorizontal: 30,
+        borderRadius: 25,
+        width: '100%',
+        alignItems: 'center',
+    },
+    modalButtonText: {
+        color: '#fff',
+        fontSize: 16,
+        fontWeight: 'bold',
     },
 });
